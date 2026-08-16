@@ -206,6 +206,20 @@ defmodule SymphonyElixir.CoreTest do
              Workflow.load(workflow_path)
   end
 
+  test "workflow load preserves UTF-8 prompt text containing NEL-like bytes" do
+    workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "UTF8_WORKFLOW.md")
+    prompt = """
+    ## Codex Workpad
+
+    > 维护者：Symphony Codex 自动维护。
+    """
+    File.write!(workflow_path, "---\ntracker:\n  kind: memory\n---\n#{prompt}")
+    assert {:ok, %{config: %{"tracker" => %{"kind" => "memory"}}, prompt: loaded_prompt}} =
+             Workflow.load(workflow_path)
+    assert loaded_prompt == String.trim(prompt)
+    assert String.valid?(loaded_prompt)
+  end
+
   test "workflow load rejects non-map front matter" do
     workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "INVALID_FRONT_MATTER_WORKFLOW.md")
     File.write!(workflow_path, "---\n- not-a-map\n---\nPrompt body\n")
