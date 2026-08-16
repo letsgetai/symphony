@@ -38,10 +38,11 @@ defmodule SymphonyElixir.Codex.AppServer do
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
   def start_session(workspace, opts \\ []) do
     worker_host = Keyword.get(opts, :worker_host)
+    labels = Keyword.get(opts, :labels, [])
     dynamic_tool_binding = DynamicTool.bind()
 
     with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host),
-         {:ok, port} <- start_port(expanded_workspace, worker_host, dynamic_tool_binding) do
+         {:ok, port} <- start_port(expanded_workspace, worker_host, dynamic_tool_binding, labels) do
       metadata = port_metadata(port, worker_host)
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
@@ -189,7 +190,7 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp start_port(workspace, nil, dynamic_tool_binding) do
+  defp start_port(workspace, nil, dynamic_tool_binding, labels) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
@@ -202,7 +203,7 @@ defmodule SymphonyElixir.Codex.AppServer do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(local_launch_command(dynamic_tool_binding))],
+            args: [~c"-lc", String.to_charlist(local_launch_command(dynamic_tool_binding, labels))],
             cd: String.to_charlist(workspace),
             env: tracker_secret_port_env(dynamic_tool_binding),
             line: @port_line_bytes
@@ -213,28 +214,50 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp start_port(workspace, worker_host, dynamic_tool_binding) when is_binary(worker_host) do
-    remote_command = remote_launch_command(workspace, dynamic_tool_binding)
+  defp start_port(workspace, worker_host, dynamic_tool_binding, labels) when is_binary(worker_host) do
+    remote_command = remote_launch_command(workspace, dynamic_tool_binding, labels)
     SSH.start_port(worker_host, remote_command, line: @port_line_bytes)
   end
 
-  defp local_launch_command(dynamic_tool_binding) do
+  defp local_launch_command(dynamic_tool_binding, labels) do
     [
       tracker_secret_unset_command(dynamic_tool_binding),
-      "exec #{Config.settings!().codex.command}"
+      "exec #{resolve_model_command(Config.settings!().codex.command, labels)}"
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" && ")
   end
 
-  defp remote_launch_command(workspace, dynamic_tool_binding) when is_binary(workspace) do
+  defp remote_launch_command(workspace, dynamic_tool_binding, labels) when is_binary(workspace) do
     [
       "cd #{shell_escape(workspace)}",
       tracker_secret_unset_command(dynamic_tool_binding),
-      "exec #{Config.settings!().codex.command}"
+      "exec #{resolve_model_command(Config.settings!().codex.command, labels)}"
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" && ")
+  end
+
+  # Replaces the %MODEL% placeholder in codex.command using label routing
+  # (label_models) with a default_model fallback. Leaves the command unchanged
+  # when it does not contain the placeholder.
+  defp resolve_model_command(command, labels) do
+    if String.contains?(command, "%MODEL%") do
+      codex = Config.settings!().codex
+      label_models = codex.label_models || %{}
+
+      model =
+        Enum.find_value(labels || [], fn label ->
+          case Map.get(label_models, label) do
+            nil -> nil
+            model -> model
+          end
+        end) || codex.default_model || ""
+
+      String.replace(command, "%MODEL%", model)
+    else
+      command
+    end
   end
 
   defp tracker_secret_port_env(dynamic_tool_binding) do

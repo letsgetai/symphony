@@ -220,6 +220,27 @@ defmodule SymphonyElixir.CoreTest do
     assert String.valid?(loaded_prompt)
   end
 
+  test "workflow config accepts label_models routing" do
+    workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "LABEL_MODELS_WORKFLOW.md")
+
+    File.write!(workflow_path, """
+    ---
+    tracker:
+      kind: linear
+    codex:
+      command: 'codex --config model="%MODEL%" app-server'
+      label_models:
+        "route/code": "haihui/deepreasoning-gp-56-luna-pool"
+      default_model: "bailian-chat/deepseek-v4-flash-0731"
+    ---
+    """)
+
+    assert {:ok, %{config: config}} = Workflow.load(workflow_path)
+    assert config["codex"]["label_models"]["route/code"] == "haihui/deepreasoning-gp-56-luna-pool"
+    assert config["codex"]["default_model"] == "bailian-chat/deepseek-v4-flash-0731"
+    assert config["codex"]["command"] == ~s(codex --config model="%MODEL%" app-server)
+  end
+
   test "workflow load rejects non-map front matter" do
     workflow_path = Path.join(Path.dirname(Workflow.workflow_file_path()), "INVALID_FRONT_MATTER_WORKFLOW.md")
     File.write!(workflow_path, "---\n- not-a-map\n---\nPrompt body\n")

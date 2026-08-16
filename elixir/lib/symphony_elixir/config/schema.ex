@@ -179,6 +179,8 @@ defmodule SymphonyElixir.Config.Schema do
     @primary_key false
     embedded_schema do
       field(:command, :string, default: "codex app-server")
+      field(:label_models, :map, default: %{})
+      field(:default_model, :string, default: nil)
 
       field(:approval_policy, StringOrMap,
         default: %{
@@ -204,6 +206,8 @@ defmodule SymphonyElixir.Config.Schema do
         attrs,
         [
           :command,
+          :label_models,
+          :default_model,
           :approval_policy,
           :thread_sandbox,
           :turn_sandbox_policy,
